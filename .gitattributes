@@ -1,0 +1,27 @@
+# Normalize line endings for Windows / macOS / Linux teammates.
+* text=auto eol=lf
+
+# Keep binary assets untouched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.mp4 binary
+*.mov binary
+*.zip binary
+*.p8 binary
+*.p12 binary
+*.mobileprovision binary
+*.jks binary
+
+# Windows wrapper scripts may use CRLF when present.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

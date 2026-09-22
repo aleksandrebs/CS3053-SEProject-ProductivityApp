@@ -15,28 +15,35 @@ Backend (FastAPI + PostgreSQL) is planned separately — see [`docs/Project-Role
 
 ## Quick start (mobile)
 
+Works the same on **Windows** and **macOS** (use PowerShell, Command Prompt, or Terminal).
+
 ```bash
 cd mobile
 npm install
 npx expo start
 ```
 
-Then:
+Then pick one:
 
-- Press `i` for iOS Simulator (**macOS + Xcode** required), or
-- Scan the QR code with **Expo Go** / a **development build** on a physical iPhone
+| Machine | How to preview |
+| --- | --- |
+| Any OS + iPhone | Install [Expo Go](https://expo.dev/go), press `s` for Expo Go mode, scan the QR (same Wi‑Fi), or use `npx expo start --tunnel` |
+| Windows | Expo Go on a phone, Android emulator, or `npm run web` |
+| macOS | Same as Windows, plus iOS Simulator with `npm run ios` if Xcode is installed |
 
-### iOS on a Mac
+Repo paths are relative (`mobile/`, `src/app/`). Do not commit absolute paths like `C:\Users\...` or `/Users/...`.
+
+### iOS Simulator (macOS only)
 
 ```bash
 cd mobile
-npm run prebuild:ios   # generates the ios/ project (gitignored; Continuous Native Generation)
-npm run run:ios        # builds and launches in the simulator
+npm run prebuild:ios
+npm run run:ios
 ```
 
-Requirements: macOS, Xcode, CocoaPods, and an Apple developer account for device installs.
+Needs macOS, Xcode, and CocoaPods.
 
-### iOS without a Mac (EAS)
+### iOS builds without a Mac (EAS)
 
 ```bash
 cd mobile
@@ -44,7 +51,7 @@ npx eas-cli@latest login
 npx eas-cli@latest build --platform ios --profile development-simulator
 ```
 
-Build profiles live in [`mobile/eas.json`](mobile/eas.json).
+Profiles: [`mobile/eas.json`](mobile/eas.json).
 
 ## Project layout
 

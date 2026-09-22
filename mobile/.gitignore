@@ -26,8 +26,9 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
-# macOS
+# OS
 .DS_Store
+Thumbs.db
 *.pem
 
 # local env files
