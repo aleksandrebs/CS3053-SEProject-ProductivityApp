@@ -2,4 +2,8 @@
 
 This is the repository for our AUP CS3053 Software Engineering Fall26 class project.
 
-See [`docs/Project-Roles.md`](docs/Project-Roles.md) for team roles and responsibilities.
+## Documentation
+
+- [Product Definition](docs/product.md)
+- [Architecture](docs/architecture.md)
+- [Team Roles](docs/Project-Roles.md)
