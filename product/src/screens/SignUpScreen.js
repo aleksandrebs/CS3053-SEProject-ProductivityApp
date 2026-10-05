@@ -2,37 +2,40 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { API_URL } from '../api';
 
-export default function LoginScreen({ onLoginSuccess, onCreateAccount }) {
-  // Values typed into the two inputs.
+export default function SignUpScreen({ onSignUp, onBackToLogin }) {
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // Text shown under the button after it is pressed.
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
 
-  // Sends the email and password to the backend, which checks them
-  // against the database
-  async function handleLogin() {
-    if (email === '' || password === '') {
-      setMessage('Please enter your email and password.');
+  async function handleSignUp() {
+    if (name === '' || email === '' || password === '' || confirmPassword === '') {
+      setMessage('Please fill in all the fields.');
       return;
     }
 
+    if (password !== confirmPassword) {
+      setMessage('Passwords do not match.');
+      return;
+    }
+
+    // the backend saves the new account in the database
+    // and tells us if the email is already taken
     try {
-      const response = await fetch(API_URL + '/login', {
+      const response = await fetch(API_URL + '/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email, password: password }),
+        body: JSON.stringify({ name: name, email: email, password: password }),
       });
       const data = await response.json();
 
       if (!response.ok) {
-        // the backend sends the error message in "detail"
         setMessage(data.detail);
         return;
       }
 
-      onLoginSuccess();
+      onSignUp();
     } catch (error) {
       setMessage('Could not connect to the server.');
     }
@@ -41,7 +44,15 @@ export default function LoginScreen({ onLoginSuccess, onCreateAccount }) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>AUP Productivity</Text>
-      <Text style={styles.subtitle}>Log into your account</Text>
+      <Text style={styles.subtitle}>Create your account</Text>
+
+      <Text style={styles.label}>Full Name</Text>
+      <TextInput
+        style={styles.input}
+        value={name}
+        onChangeText={setName}
+        placeholder="Your name"
+      />
 
       <Text style={styles.label}>Email</Text>
       <TextInput
@@ -62,12 +73,21 @@ export default function LoginScreen({ onLoginSuccess, onCreateAccount }) {
         secureTextEntry
       />
 
-      <Pressable style={styles.button} onPress={handleLogin}>
-        <Text style={styles.buttonText}>Log In</Text>
+      <Text style={styles.label}>Confirm Password</Text>
+      <TextInput
+        style={styles.input}
+        value={confirmPassword}
+        onChangeText={setConfirmPassword}
+        placeholder="Type your password again"
+        secureTextEntry
+      />
+
+      <Pressable style={styles.button} onPress={handleSignUp}>
+        <Text style={styles.buttonText}>Sign Up</Text>
       </Pressable>
 
-      <Pressable style={styles.secondaryButton} onPress={onCreateAccount}>
-        <Text style={styles.secondaryButtonText}>Create Account</Text>
+      <Pressable style={styles.secondaryButton} onPress={onBackToLogin}>
+        <Text style={styles.secondaryButtonText}>Back to Log In</Text>
       </Pressable>
 
       <Text style={styles.message}>{message}</Text>
