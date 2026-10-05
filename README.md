@@ -7,3 +7,9 @@ This is the repository for our AUP CS3053 Software Engineering Fall26 class proj
 - [Product Definition](docs/product.md)
 - [Architecture](docs/architecture.md)
 - [Team Roles](docs/Project-Roles.md)
+- [DB Schema](docs/db-schema.md)
+- [API Contract](docs/api-contract.md)
+
+## Backend
+
+See [backend/README.md](backend/README.md) for how to run the FastAPI server.
