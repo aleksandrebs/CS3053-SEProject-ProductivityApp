@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import bcrypt
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import Base, SessionLocal, engine
-from models import StudySession, TokenTransaction, User
+from models import Streak, StudySession, TokenTransaction, User
 
 # creates tables if they are missing
 Base.metadata.create_all(bind=engine)
@@ -249,8 +249,6 @@ def complete_session(
 
     user.token_balance += tokens
     user.total_study_time += data.actual_duration
-    # very basic streak bump for now
-    user.current_streak += 1
 
     tx = TokenTransaction(
         user_id=user.id,
@@ -324,3 +322,59 @@ def get_session(
 @app.get("/tokens/balance")
 def token_balance(user: User = Depends(get_current_user)):
     return {"token_balance": user.token_balance}
+
+
+# ----- streaks -----
+
+# if they don't start the timer for longer than this, the streak is lost
+STREAK_RESET_TIME = timedelta(hours=24)
+
+
+def get_streak_row(user: User, db: Session):
+    streak = db.query(Streak).filter(Streak.user_id == user.id).first()
+    if streak is None:
+        streak = Streak(user_id=user.id, current_streak=0)
+        db.add(streak)
+    return streak
+
+
+def reset_streak_if_inactive(streak: Streak, user: User):
+    if streak.last_active_at and datetime.now() - streak.last_active_at > STREAK_RESET_TIME:
+        streak.current_streak = 0
+    # users.current_streak is just a copy so /auth/me shows the same number
+    user.current_streak = streak.current_streak
+
+
+@app.get("/streak")
+def get_streak(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    streak = get_streak_row(user, db)
+    reset_streak_if_inactive(streak, user)
+    db.commit()
+    return {"current_streak": streak.current_streak}
+
+
+# the app calls this every time the timer is started
+@app.post("/streak/check-in")
+def streak_check_in(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    streak = get_streak_row(user, db)
+    reset_streak_if_inactive(streak, user)
+    now = datetime.now()
+
+    if streak.current_streak == 0:
+        # first day, or the old streak was lost
+        streak.current_streak = 1
+    elif streak.last_active_at.date() != now.date():
+        # first timer of a new day
+        streak.current_streak += 1
+    # if they already started the timer today, nothing changes
+
+    streak.last_active_at = now
+    user.current_streak = streak.current_streak
+    db.commit()
+    return {"current_streak": streak.current_streak}

@@ -8,10 +8,18 @@ export default function App() {
   // which screen we're on: 'login', 'signup' or 'timer'
   const [screen, setScreen] = useState('login');
 
+  // login token from the backend, needed for routes like /streak
+  const [token, setToken] = useState(null);
+
+  function handleLoginSuccess(accessToken) {
+    setToken(accessToken);
+    setScreen('timer');
+  }
+
   if (screen === 'timer') {
     return (
       <>
-        <TimerScreen />
+        <TimerScreen token={token} />
         <StatusBar style="light" />
       </>
     );
@@ -32,7 +40,7 @@ export default function App() {
   return (
     <>
       <LoginScreen
-        onLoginSuccess={() => setScreen('timer')}
+        onLoginSuccess={handleLoginSuccess}
         onCreateAccount={() => setScreen('signup')}
       />
       <StatusBar style="auto" />

@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
+import { API_URL } from '../api';
 
 const DURATIONS = { work: 25 * 60, short: 5 * 60, long: 15 * 60 };
 const MODES = ['work', 'short', 'long'];
@@ -17,18 +18,47 @@ Notifications.setNotificationHandler({
     }),
 });
 
-export default function TimerScreen() {
+export default function TimerScreen({ token }) {
     useKeepAwake(); // keep the screen on while the timer screen is open
 
     const [mode, setMode] = useState('work');
     const [endTime, setEndTime] = useState(null); // null = paused
     const [remaining, setRemaining] = useState(DURATIONS.work); // seconds
     const [completed, setCompleted] = useState(0);
+    const [streak, setStreak] = useState(0); // days in a row
     const notifId = useRef(null);
 
     useEffect(() => {
         Notifications.requestPermissionsAsync();
+        loadStreak();
     }, []);
+
+    // gets the current streak from the backend when the page opens
+    async function loadStreak() {
+        try {
+            const response = await fetch(API_URL + '/streak', {
+                headers: { Authorization: 'Bearer ' + token },
+            });
+            const data = await response.json();
+            if (response.ok) setStreak(data.current_streak);
+        } catch (error) {
+            // can't reach the server, just keep showing the last number
+        }
+    }
+
+    // tells the backend the timer was started, so today counts for the streak
+    async function checkInStreak() {
+        try {
+            const response = await fetch(API_URL + '/streak/check-in', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + token },
+            });
+            const data = await response.json();
+            if (response.ok) setStreak(data.current_streak);
+        } catch (error) {
+            // the timer should still work even if the streak can't be saved
+        }
+    }
 
     // Recompute remaining time from the end timestamp instead of decrementing
     useEffect(() => {
@@ -55,6 +85,7 @@ export default function TimerScreen() {
     async function start() {
         const end = Date.now() + remaining * 1000;
         setEndTime(end);
+        checkInStreak();
 
         // Fires even if the app is in the background
         notifId.current = await Notifications.scheduleNotificationAsync({
@@ -101,6 +132,8 @@ export default function TimerScreen() {
 
     return (
         <View style={[styles.container, mode !== 'work' && styles.breakBg]}>
+            <Text style={styles.streak}>🔥 {streak}</Text>
+
             <View style={styles.tabs}>
                 {MODES.map((m) => (
                     <Pressable key={m} onPress={() => switchMode(m)}>
@@ -131,6 +164,7 @@ const styles = StyleSheet.create({
         gap: 32,
     },
     breakBg: { backgroundColor: '#6d6a4f' },
+    streak: { position: 'absolute', top: 60, right: 24, color: '#fff', fontSize: 22, fontWeight: '600' },
     tabs: { flexDirection: 'row', gap: 20 },
     tab: { color: '#ffffffaa', fontSize: 18 },
     activeTab: { color: '#fff', fontWeight: '700' },

@@ -24,4 +24,5 @@ Then open http://localhost:8000/docs for the auto API page.
 - Uses a local sqlite file `app.db` by default
 - Existing mobile screens still use `/signup` and `/login`
 - Session routes need `Authorization: Bearer <access_token>` from login/signup
+- Streak routes: `GET /streak` and `POST /streak/check-in` (the app calls check-in when the timer starts)
 - If you change models a lot, delete `app.db` and run the server again so tables recreate

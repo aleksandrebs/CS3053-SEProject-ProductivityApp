@@ -194,6 +194,30 @@ Needs auth.
 
 ---
 
+## Streak
+
+### GET /streak
+
+Needs auth. Returns the current streak. It comes back as 0 if they haven't started the timer in the last 24 hours.
+
+```json
+{
+  "current_streak": 3
+}
+```
+
+### POST /streak/check-in
+
+Needs auth. The app calls this every time the timer is started.
+
+- first time starting the timer on a new day: streak + 1
+- already started it today: no change
+- more than 24 hours since the last start: streak starts again at 1
+
+Returns the same thing as GET /streak.
+
+---
+
 ## Rewards (can wait a bit)
 
 ### GET /rewards

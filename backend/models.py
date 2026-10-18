@@ -60,3 +60,14 @@ class TokenTransaction(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     user = relationship("User", back_populates="token_transactions")
+
+
+# one row per user for their daily streak
+class Streak(Base):
+    __tablename__ = "streaks"
+
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    current_streak = Column(Integer, nullable=False, default=0)
+    # last time they started the timer, used for the 24 hour reset
+    last_active_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
