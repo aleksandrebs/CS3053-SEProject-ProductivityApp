@@ -32,7 +32,7 @@ export default function LoginScreen({ onLoginSuccess, onCreateAccount }) {
         return;
       }
 
-      onLoginSuccess();
+      onLoginSuccess(data.access_token);
     } catch (error) {
       setMessage('Could not connect to the server.');
     }

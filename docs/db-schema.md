@@ -166,10 +166,15 @@ Requester and addressee cannot be the same user. Keep one row per pair.
 | --- | --- | --- |
 | user_id | FK users.id | one row per user |
 | current_streak | INTEGER | default 0 |
-| last_study_date | DATE | nullable |
+| last_active_at | TIMESTAMPTZ | last time they started the timer, nullable |
 | updated_at | TIMESTAMPTZ | |
 
-If they miss a day we can reset the streak. users.current_streak can just mirror this so the app can read it easily.
+Rules:
+- the streak goes up by 1 the first time they start the timer on a new day
+- starting the timer again on the same day doesn't change it
+- if more than 24 hours pass without starting the timer, the streak resets
+
+users.current_streak just mirrors this so the app can read it easily.
 
 ---
 

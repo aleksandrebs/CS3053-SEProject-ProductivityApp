@@ -234,8 +234,8 @@ Stores or calculates consecutive study days.
 | Field | Purpose |
 | --- | --- |
 | user_id | Student |
-| current_streak | Consecutive days completed |
-| last_study_date | Last day with enough completed study time |
+| current_streak | Consecutive days the timer was started |
+| last_active_at | Last time the timer was started |
 
 Leaderboard rankings can mainly be calculated from study-session and streak data.
 

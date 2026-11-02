@@ -4,12 +4,9 @@ import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
 
-
 const DURATIONS = { work: 25 * 60, short: 5 * 60, long: 15 * 60 };
 const MODES = ['work', 'short', 'long'];
 const LABELS = { work: 'Focus', short: 'Short', long: 'Long' };
-
-
 
 Notifications.setNotificationHandler({
     handleNotification: async () => ({
@@ -28,13 +25,10 @@ export default function TimerScreen() {
     const [remaining, setRemaining] = useState(DURATIONS.work); // seconds
     const [completed, setCompleted] = useState(0);
     const notifId = useRef(null);
-    const [tokens,setTokens] = useState(0);
-
 
     useEffect(() => {
         Notifications.requestPermissionsAsync();
     }, []);
-
 
     // Recompute remaining time from the end timestamp instead of decrementing
     useEffect(() => {
@@ -92,7 +86,6 @@ export default function TimerScreen() {
         setEndTime(null);
         notifId.current = null; // notification already fired
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setTokens((t) => t + 1);
 
         if (mode === 'work') {
             const n = completed + 1;
@@ -125,7 +118,6 @@ export default function TimerScreen() {
             </Pressable>
 
             <Text style={styles.count}>🍅 × {completed}</Text>
-            <Text style={styles.count}>🍅 Tokens: {tokens}</Text>
         </View>
     );
 }
