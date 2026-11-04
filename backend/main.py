@@ -378,3 +378,32 @@ def streak_check_in(
     user.current_streak = streak.current_streak
     db.commit()
     return {"current_streak": streak.current_streak}
+
+#token stuff
+class EarnTokensRequest(BaseModel):
+    amount: int
+
+# the app calls this every time the user has used the timer for another 5 minutes
+@app.post("/tokens/earn")
+def earn_tokens(
+        data: EarnTokensRequest,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+):
+    # small cap so a single request can't hand out a huge number of tokens
+    if data.amount < 1 or data.amount > 12:
+        raise HTTPException(status_code=400, detail="amount must be between 1 and 12.")
+
+    # saved on the logged-in user, so it stays on their account permanently
+    user.token_balance += data.amount
+    db.add(
+        TokenTransaction(
+            user_id=user.id,
+            amount=data.amount,
+            type="earn",
+            reason="timer_usage",
+        )
+    )
+    db.commit()
+    db.refresh(user)
+    return {"token_balance": user.token_balance}
