@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 import bcrypt
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,15 @@ from models import Streak, StreakDay, StudySession, TokenTransaction, User
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+# needed so the Vercel web app (browser) can call this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ----- request bodies -----
