@@ -232,15 +232,52 @@ Needs auth. If they have enough tokens, create a redemption and lower balance.
 
 ---
 
-## Friends / leaderboard later
+## Leaderboard
 
-We can add these when we get there:
+### GET /leaderboard?scope=all
 
-- GET /users/search?q=
-- POST /friends/requests
-- POST /friends/requests/{id}/accept
-- GET /friends
-- GET /leaderboard?period=week
+Needs auth. Returns everyone ranked by total study time (then tokens).
+
+`scope=friends` only includes accepted friends (+ you).
+
+```json
+{
+  "scope": "all",
+  "items": [
+    {
+      "rank": 1,
+      "id": 2,
+      "name": "Alex",
+      "username": "alex",
+      "token_balance": 40,
+      "current_streak": 3,
+      "total_study_time": 120
+    }
+  ]
+}
+```
+
+## Friends
+
+### GET /users/search?q=
+
+Needs auth. Search by name, username, or email.
+
+### POST /friends/requests
+
+Body: `{ "user_id": 3 }` — send a friend request.
+
+### GET /friends/requests
+
+Returns `{ "incoming": [...], "outgoing": [...] }` pending requests.
+
+### POST /friends/requests/{id}/accept
+
+### POST /friends/requests/{id}/reject
+
+### GET /friends
+
+Accepted friends with their study stats.
 
 ---
 

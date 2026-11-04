@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import Base, SessionLocal, engine
-from models import Streak, StreakDay, StudySession, TokenTransaction, User
+from models import Friendship, Streak, StreakDay, StudySession, TokenTransaction, User
 
 # creates tables if they are missing
 Base.metadata.create_all(bind=engine)
@@ -478,6 +478,11 @@ def streak_check_in(
 class EarnTokensRequest(BaseModel):
     amount: int
 
+
+class FriendRequestBody(BaseModel):
+    user_id: int
+
+
 # the app calls this every time the user has used the timer for another 5 minutes
 @app.post("/tokens/earn")
 def earn_tokens(
@@ -502,3 +507,251 @@ def earn_tokens(
     db.commit()
     db.refresh(user)
     return {"token_balance": user.token_balance}
+
+
+# ----- leaderboard + friends -----
+
+def public_stats(user: User, rank: int | None = None):
+    row = {
+        "id": user.id,
+        "name": user.name,
+        "username": user.username,
+        "token_balance": user.token_balance or 0,
+        "current_streak": user.current_streak or 0,
+        "total_study_time": user.total_study_time or 0,
+    }
+    if rank is not None:
+        row["rank"] = rank
+    return row
+
+
+def accepted_friend_ids(user_id: int, db: Session):
+    rows = (
+        db.query(Friendship)
+        .filter(
+            Friendship.status == "accepted",
+            (Friendship.requester_id == user_id) | (Friendship.addressee_id == user_id),
+        )
+        .all()
+    )
+    ids = set()
+    for r in rows:
+        ids.add(r.requester_id if r.addressee_id == user_id else r.addressee_id)
+    return ids
+
+
+@app.get("/leaderboard")
+def leaderboard(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    scope: str = "all",
+):
+    # scope=all -> everyone, scope=friends -> only accepted friends (+ you)
+    q = db.query(User)
+    if scope == "friends":
+        friend_ids = accepted_friend_ids(user.id, db)
+        friend_ids.add(user.id)
+        if len(friend_ids) == 1:
+            # only you — still show your row
+            q = q.filter(User.id == user.id)
+        else:
+            q = q.filter(User.id.in_(friend_ids))
+
+    rows = q.order_by(User.total_study_time.desc(), User.token_balance.desc()).all()
+    items = [public_stats(u, rank=i + 1) for i, u in enumerate(rows)]
+    return {"scope": scope, "items": items}
+
+
+@app.get("/users/search")
+def search_users(
+    q: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    term = (q or "").strip()
+    if len(term) < 1:
+        return {"items": []}
+
+    like = f"%{term}%"
+    rows = (
+        db.query(User)
+        .filter(
+            User.id != user.id,
+            (User.username.ilike(like)) | (User.name.ilike(like)) | (User.email.ilike(like)),
+        )
+        .order_by(User.name.asc())
+        .limit(20)
+        .all()
+    )
+
+    if not rows:
+        return {"items": []}
+
+    ids = [u.id for u in rows]
+    friend_map = {}
+    for r in (
+        db.query(Friendship)
+        .filter(
+            ((Friendship.requester_id == user.id) & (Friendship.addressee_id.in_(ids)))
+            | ((Friendship.addressee_id == user.id) & (Friendship.requester_id.in_(ids)))
+        )
+        .all()
+    ):
+        other = r.addressee_id if r.requester_id == user.id else r.requester_id
+        friend_map[other] = {
+            "status": r.status,
+            "direction": "outgoing" if r.requester_id == user.id else "incoming",
+            "friendship_id": r.id,
+        }
+
+    items = []
+    for u in rows:
+        item = public_stats(u)
+        rel = friend_map.get(u.id)
+        item["friendship"] = rel
+        items.append(item)
+    return {"items": items}
+
+
+@app.post("/friends/requests", status_code=201)
+def send_friend_request(
+    data: FriendRequestBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if data.user_id == user.id:
+        raise HTTPException(status_code=400, detail="You cannot friend yourself.")
+
+    other = db.query(User).filter(User.id == data.user_id).first()
+    if other is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    existing = (
+        db.query(Friendship)
+        .filter(
+            ((Friendship.requester_id == user.id) & (Friendship.addressee_id == data.user_id))
+            | ((Friendship.requester_id == data.user_id) & (Friendship.addressee_id == user.id))
+        )
+        .first()
+    )
+    if existing:
+        if existing.status == "accepted":
+            raise HTTPException(status_code=409, detail="You are already friends.")
+        if existing.status == "pending":
+            raise HTTPException(status_code=409, detail="Friend request already pending.")
+        # rejected before — allow a new pending request from this user
+        existing.requester_id = user.id
+        existing.addressee_id = data.user_id
+        existing.status = "pending"
+        db.commit()
+        db.refresh(existing)
+        return {
+            "id": existing.id,
+            "status": existing.status,
+            "user": public_stats(other),
+        }
+
+    row = Friendship(
+        requester_id=user.id,
+        addressee_id=data.user_id,
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "status": row.status, "user": public_stats(other)}
+
+
+@app.post("/friends/requests/{friendship_id}/accept")
+def accept_friend_request(
+    friendship_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.query(Friendship).filter(Friendship.id == friendship_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Request not found.")
+    if row.addressee_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your request to accept.")
+    if row.status != "pending":
+        raise HTTPException(status_code=409, detail="Request is not pending.")
+
+    row.status = "accepted"
+    db.commit()
+    db.refresh(row)
+    other = db.query(User).filter(User.id == row.requester_id).first()
+    return {"id": row.id, "status": row.status, "user": public_stats(other)}
+
+
+@app.post("/friends/requests/{friendship_id}/reject")
+def reject_friend_request(
+    friendship_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.query(Friendship).filter(Friendship.id == friendship_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Request not found.")
+    if row.addressee_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your request to reject.")
+    if row.status != "pending":
+        raise HTTPException(status_code=409, detail="Request is not pending.")
+
+    row.status = "rejected"
+    db.commit()
+    return {"id": row.id, "status": row.status}
+
+
+@app.get("/friends")
+def list_friends(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    friend_ids = accepted_friend_ids(user.id, db)
+    if not friend_ids:
+        return {"items": []}
+
+    rows = (
+        db.query(User)
+        .filter(User.id.in_(friend_ids))
+        .order_by(User.total_study_time.desc())
+        .all()
+    )
+    return {"items": [public_stats(u) for u in rows]}
+
+
+@app.get("/friends/requests")
+def list_friend_requests(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    incoming = (
+        db.query(Friendship)
+        .filter(Friendship.addressee_id == user.id, Friendship.status == "pending")
+        .all()
+    )
+    outgoing = (
+        db.query(Friendship)
+        .filter(Friendship.requester_id == user.id, Friendship.status == "pending")
+        .all()
+    )
+
+    def pack(rows, other_field):
+        items = []
+        for r in rows:
+            other_id = getattr(r, other_field)
+            other = db.query(User).filter(User.id == other_id).first()
+            if other:
+                items.append(
+                    {
+                        "friendship_id": r.id,
+                        "status": r.status,
+                        "user": public_stats(other),
+                    }
+                )
+        return items
+
+    return {
+        "incoming": pack(incoming, "requester_id"),
+        "outgoing": pack(outgoing, "addressee_id"),
+    }

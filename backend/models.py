@@ -28,6 +28,22 @@ class User(Base):
     streak_days = relationship("StreakDay", back_populates="user")
 
 
+# friend request / accepted friendship between two users
+class Friendship(Base):
+    __tablename__ = "friendships"
+    __table_args__ = (
+        UniqueConstraint("requester_id", "addressee_id", name="uq_friendship_pair"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    requester_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    addressee_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # pending / accepted / rejected
+    status = Column(String(20), nullable=False, default="pending")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 # one row = one timer run
 class StudySession(Base):
     __tablename__ = "study_sessions"

@@ -42,3 +42,26 @@ export const getMe = () => request('/auth/me');
 // save a new username; returns the updated user
 export const updateUsername = (username) =>
     request('/auth/me', { method: 'PATCH', body: JSON.stringify({ username }) });
+
+// everyone or friends only; scope = 'all' | 'friends'
+export const getLeaderboard = (scope = 'all') =>
+    request(`/leaderboard?scope=${scope}`);
+
+export const searchUsers = (q) =>
+    request(`/users/search?q=${encodeURIComponent(q)}`);
+
+export const getFriends = () => request('/friends');
+
+export const getFriendRequests = () => request('/friends/requests');
+
+export const sendFriendRequest = (userId) =>
+    request('/friends/requests', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId }),
+    });
+
+export const acceptFriendRequest = (friendshipId) =>
+    request(`/friends/requests/${friendshipId}/accept`, { method: 'POST' });
+
+export const rejectFriendRequest = (friendshipId) =>
+    request(`/friends/requests/${friendshipId}/reject`, { method: 'POST' });
