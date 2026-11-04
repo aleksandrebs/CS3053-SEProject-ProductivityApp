@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, AppState } from 'react-native';
+import { View, Text, Pressable, StyleSheet, AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -12,18 +12,21 @@ const TOKEN_INTERVAL = 5 * 60;
 const RETRY_MS = 10000;
 const CUSTOM_MIN = 1;
 const CUSTOM_MAX = 180;
+const IS_WEB = Platform.OS === 'web';
 
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-    }),
-});
+if (!IS_WEB) {
+    Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+            shouldShowBanner: true,
+            shouldShowList: true,
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+        }),
+    });
+}
 
 export default function TimerScreen({ onOpenStreak }) {
-    useKeepAwake(); // keep the screen on while the timer screen is open
+    useKeepAwake();
 
     const [mode, setMode] = useState('work');
     const [endTime, setEndTime] = useState(null); // null = paused
@@ -47,7 +50,7 @@ export default function TimerScreen({ onOpenStreak }) {
     }
 
     useEffect(() => {
-        Notifications.requestPermissionsAsync();
+        if (!IS_WEB) Notifications.requestPermissionsAsync();
     }, []);
 
     // loads the saved balance and streak from the user's account when the screen is open
@@ -132,19 +135,21 @@ export default function TimerScreen({ onOpenStreak }) {
             .then((r) => setStreak(r.current_streak))
             .catch((e) => console.warn('Could not update streak', e));
 
-        // Fires even if the app is in the background
-        notifId.current = await Notifications.scheduleNotificationAsync({
-            content: { title: notifTitle() },
-            trigger: {
-                type: Notifications.SchedulableTriggerInputTypes.DATE,
-                date: new Date(end),
-            },
-        });
+        // phone only — browsers don't support scheduled local notifications the same way
+        if (!IS_WEB) {
+            notifId.current = await Notifications.scheduleNotificationAsync({
+                content: { title: notifTitle() },
+                trigger: {
+                    type: Notifications.SchedulableTriggerInputTypes.DATE,
+                    date: new Date(end),
+                },
+            });
+        }
     }
 
     async function pause() {
         setEndTime(null);
-        if (notifId.current) {
+        if (!IS_WEB && notifId.current) {
             await Notifications.cancelScheduledNotificationAsync(notifId.current);
             notifId.current = null;
         }
@@ -172,7 +177,9 @@ export default function TimerScreen({ onOpenStreak }) {
     function finish() {
         setEndTime(null);
         notifId.current = null; // notification already fired
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (!IS_WEB) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
 
         if (mode === 'work') {
             switchMode('break');

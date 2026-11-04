@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import * as SecureStore from 'expo-secure-store';
+import { setItem } from './src/storage';
 import LoginScreen from './src/screens/LoginScreen';
 import SignUpScreen from './src/screens/SignUpScreen';
 import TimerScreen from './src/screens/TimerScreen';
@@ -27,7 +27,7 @@ export default function App() {
     setToken(accessToken);
     // TokenApi.js reads the token from here, so it has to be saved
     // before the timer screen opens and asks for the balance
-    await SecureStore.setItemAsync('access_token', accessToken);
+    await setItem('access_token', accessToken);
     setActiveTab('timer');
     setOverlay(null);
     setScreen('main');

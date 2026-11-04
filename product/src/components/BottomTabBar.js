@@ -12,11 +12,15 @@ export default function BottomTabBar({ activeTab, onChangeTab }) {
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       <View style={styles.shell}>
-        <BlurView
-          intensity={Platform.OS === 'ios' ? 60 : 85}
-          tint="light"
-          style={StyleSheet.absoluteFill}
-        />
+        {Platform.OS === 'web' ? (
+          <View style={[StyleSheet.absoluteFill, styles.webGlass]} />
+        ) : (
+          <BlurView
+            intensity={Platform.OS === 'ios' ? 60 : 85}
+            tint="light"
+            style={StyleSheet.absoluteFill}
+          />
+        )}
         <View style={styles.tint} />
         <View style={styles.edge} />
 
@@ -68,6 +72,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 16,
     elevation: 10,
+  },
+  webGlass: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
   },
   tint: {
     ...StyleSheet.absoluteFillObject,
