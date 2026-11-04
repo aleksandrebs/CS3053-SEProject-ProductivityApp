@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import Base, SessionLocal, engine
-from models import Streak, StudySession, TokenTransaction, User
+from models import Streak, StreakDay, StudySession, TokenTransaction, User
 
 # creates tables if they are missing
 Base.metadata.create_all(bind=engine)
@@ -27,6 +27,10 @@ class SignUpRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class UpdateProfileRequest(BaseModel):
+    username: str
 
 
 class StartSessionRequest(BaseModel):
@@ -186,7 +190,42 @@ def auth_login(data: LoginRequest, db: Session = Depends(get_db)):
 
 
 @app.get("/auth/me")
-def auth_me(user: User = Depends(get_current_user)):
+def auth_me(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # keep current_streak in sync with the 24h reset rule
+    streak = get_streak_row(user, db)
+    reset_streak_if_inactive(streak, user)
+    db.commit()
+    return user_to_dict(user)
+
+
+@app.patch("/auth/me")
+def update_me(
+    data: UpdateProfileRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    username = data.username.strip()
+    if username == "":
+        raise HTTPException(status_code=400, detail="Username cannot be empty.")
+    if len(username) < 3 or len(username) > 30:
+        raise HTTPException(status_code=400, detail="Username must be 3 to 30 characters.")
+    if " " in username:
+        raise HTTPException(status_code=400, detail="Username cannot have spaces.")
+
+    taken = (
+        db.query(User)
+        .filter(User.username == username, User.id != user.id)
+        .first()
+    )
+    if taken:
+        raise HTTPException(status_code=409, detail="That username is already taken.")
+
+    user.username = username
+    db.commit()
+    db.refresh(user)
     return user_to_dict(user)
 
 
@@ -345,6 +384,16 @@ def reset_streak_if_inactive(streak: Streak, user: User):
     user.current_streak = streak.current_streak
 
 
+def record_streak_day(user: User, day, db: Session):
+    exists = (
+        db.query(StreakDay)
+        .filter(StreakDay.user_id == user.id, StreakDay.day == day)
+        .first()
+    )
+    if exists is None:
+        db.add(StreakDay(user_id=user.id, day=day))
+
+
 @app.get("/streak")
 def get_streak(
     user: User = Depends(get_current_user),
@@ -353,7 +402,42 @@ def get_streak(
     streak = get_streak_row(user, db)
     reset_streak_if_inactive(streak, user)
     db.commit()
-    return {"current_streak": streak.current_streak}
+    return {
+        "current_streak": streak.current_streak,
+        "last_active_at": streak.last_active_at,
+    }
+
+
+@app.get("/streak/history")
+def streak_history(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    streak = get_streak_row(user, db)
+    reset_streak_if_inactive(streak, user)
+    db.commit()
+
+    rows = (
+        db.query(StreakDay)
+        .filter(StreakDay.user_id == user.id)
+        .order_by(StreakDay.day.desc())
+        .limit(60)
+        .all()
+    )
+
+    # estimate when this run of days began
+    started_on = None
+    if streak.current_streak > 0 and streak.last_active_at:
+        started_on = (
+            streak.last_active_at.date() - timedelta(days=streak.current_streak - 1)
+        ).isoformat()
+
+    return {
+        "current_streak": streak.current_streak,
+        "last_active_at": streak.last_active_at,
+        "started_on": started_on,
+        "days": [{"day": r.day.isoformat()} for r in rows],
+    }
 
 
 # the app calls this every time the timer is started
@@ -376,6 +460,7 @@ def streak_check_in(
 
     streak.last_active_at = now
     user.current_streak = streak.current_streak
+    record_streak_day(user, now.date(), db)
     db.commit()
     return {"current_streak": streak.current_streak}
 

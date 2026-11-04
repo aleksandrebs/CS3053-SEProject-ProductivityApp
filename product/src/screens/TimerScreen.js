@@ -3,13 +3,15 @@ import { View, Text, Pressable, StyleSheet, AppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
-import { getBalance, earnTokens} from "./TokenApi";
+import { getBalance, earnTokens, getStreak, checkInStreak } from './TokenApi';
 
-const DURATIONS = { work: 25 * 60, short: 5 * 60, long: 15 * 60 };
-const MODES = ['work', 'short', 'long'];
-const LABELS = { work: 'Focus', short: 'Short', long: 'Long' };
-const TOKEN_INTERVAL = 5*60;
+const DEFAULTS = { work: 25 * 60, break: 5 * 60 };
+const MODES = ['work', 'break', 'custom'];
+const LABELS = { work: 'Focus', break: 'Break', custom: 'Custom' };
+const TOKEN_INTERVAL = 5 * 60;
 const RETRY_MS = 10000;
+const CUSTOM_MIN = 1;
+const CUSTOM_MAX = 180;
 
 Notifications.setNotificationHandler({
     handleNotification: async () => ({
@@ -20,14 +22,15 @@ Notifications.setNotificationHandler({
     }),
 });
 
-export default function TimerScreen() {
+export default function TimerScreen({ onOpenStreak }) {
     useKeepAwake(); // keep the screen on while the timer screen is open
 
     const [mode, setMode] = useState('work');
     const [endTime, setEndTime] = useState(null); // null = paused
-    const [remaining, setRemaining] = useState(DURATIONS.work); // seconds
-    const [completed, setCompleted] = useState(0);
+    const [remaining, setRemaining] = useState(DEFAULTS.work); // seconds
+    const [customMins, setCustomMins] = useState(10);
     const [tokens, setTokens] = useState(0);
+    const [streak, setStreak] = useState(0); // days in a row
     const notifId = useRef(null);
 
     //all for the tokens (time and saving)
@@ -38,15 +41,23 @@ export default function TimerScreen() {
     const saving = useRef(false);
     const lastTry = useRef(0);
 
+    function durationFor(m, mins = customMins) {
+        if (m === 'custom') return mins * 60;
+        return DEFAULTS[m];
+    }
+
     useEffect(() => {
         Notifications.requestPermissionsAsync();
     }, []);
 
-    // loads the saved balance from the user's account when the screen is open
+    // loads the saved balance and streak from the user's account when the screen is open
     useEffect(() => {
         getBalance()
             .then((r) => setTokens(r.token_balance))
             .catch((e) => console.warn('Could not load balance', e));
+        getStreak()
+            .then((r) => setStreak(r.current_streak))
+            .catch((e) => console.warn('Could not load streak', e));
     }, []);
 
     // Recompute remaining time from the end timestamp instead of decrementing
@@ -54,7 +65,8 @@ export default function TimerScreen() {
         if (!endTime) return;
 
         const tick = () => {
-            const secs = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+            const now = Date.now();
+            const secs = Math.max(0, Math.round((endTime - now) / 1000));
             setRemaining(secs);
             usedSecs.current += (now - lastTick.current) / 1000;
             lastTick.current = now;
@@ -73,6 +85,7 @@ export default function TimerScreen() {
             sub.remove();
         };
     }, [endTime]);
+
     // every 5 mins the user gets 1 token and is saved
     function collectTokens() {
         const earned = Math.floor(usedSecs.current / TOKEN_INTERVAL) - awarded.current;
@@ -103,15 +116,25 @@ export default function TimerScreen() {
         }
     }
 
+    function notifTitle() {
+        if (mode === 'work') return 'Focus done! Take a break.';
+        if (mode === 'break') return 'Break over, back to work.';
+        return "Time's up!";
+    }
+
     async function start() {
         const end = Date.now() + remaining * 1000;
+        lastTick.current = Date.now(); // so only time from now on counts towards tokens
         setEndTime(end);
+
+        // starting the timer counts today for the streak
+        checkInStreak()
+            .then((r) => setStreak(r.current_streak))
+            .catch((e) => console.warn('Could not update streak', e));
 
         // Fires even if the app is in the background
         notifId.current = await Notifications.scheduleNotificationAsync({
-            content: {
-                title: mode === 'work' ? 'Focus done! Take a break.' : 'Break over, back to work.',
-            },
+            content: { title: notifTitle() },
             trigger: {
                 type: Notifications.SchedulableTriggerInputTypes.DATE,
                 date: new Date(end),
@@ -127,10 +150,23 @@ export default function TimerScreen() {
         }
     }
 
+    // stop the run and put the clock back to the full time for this mode
+    async function reset() {
+        await pause();
+        setRemaining(durationFor(mode));
+    }
+
     function switchMode(next) {
         pause();
         setMode(next);
-        setRemaining(DURATIONS[next]);
+        setRemaining(durationFor(next));
+    }
+
+    function changeCustomMins(delta) {
+        if (endTime) return; // don't change length while running
+        const next = Math.min(CUSTOM_MAX, Math.max(CUSTOM_MIN, customMins + delta));
+        setCustomMins(next);
+        if (mode === 'custom') setRemaining(next * 60);
     }
 
     function finish() {
@@ -139,9 +175,7 @@ export default function TimerScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
         if (mode === 'work') {
-            const n = completed + 1;
-            setCompleted(n);
-            switchMode(n % 4 === 0 ? 'long' : 'short'); // long break every 4 pomodoros
+            switchMode('break');
         } else {
             switchMode('work');
         }
@@ -149,17 +183,27 @@ export default function TimerScreen() {
 
     const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
     const ss = String(remaining % 60).padStart(2, '0');
+    // show reset after the user has started (running or paused mid-session)
+    const canReset = endTime !== null || remaining < durationFor(mode);
 
     return (
-        <View style={[styles.container, mode !== 'work' && styles.breakBg]}>
-            <View style={styles.tokenBadge}> {/*adding the token counterer */}
-                <Text style={styles.tokenText}>🍅 {tokens}</Text>
+        <View style={[styles.container, mode === 'break' && styles.breakBg]}>
+            {/* streak and token counters */}
+            <View style={styles.badges}>
+                <Pressable style={styles.badge} onPress={onOpenStreak}>
+                    <Text style={styles.badgeText}>🔥 {streak}</Text>
+                </Pressable>
+                <View style={styles.badge}>
+                    <Text style={styles.badgeText}>🍅 {tokens}</Text>
+                </View>
             </View>
 
             <View style={styles.tabs}>
                 {MODES.map((m) => (
                     <Pressable key={m} onPress={() => switchMode(m)}>
-                        <Text style={[styles.tab, m === mode && styles.activeTab]}>{LABELS[m]}</Text>
+                        <Text style={[styles.tab, m === mode && styles.activeTab]}>
+                            {LABELS[m]}
+                        </Text>
                     </Pressable>
                 ))}
             </View>
@@ -168,11 +212,30 @@ export default function TimerScreen() {
                 {mm}:{ss}
             </Text>
 
-            <Pressable style={styles.button} onPress={endTime ? pause : start}>
-                <Text style={styles.buttonText}>{endTime ? 'Pause' : 'Start'}</Text>
-            </Pressable>
+            {mode === 'custom' && !endTime ? (
+                <View style={styles.customRow}>
+                    <Pressable style={styles.stepBtn} onPress={() => changeCustomMins(-1)}>
+                        <Text style={styles.stepText}>−</Text>
+                    </Pressable>
+                    <Text style={styles.customLabel}>
+                        {customMins} min
+                    </Text>
+                    <Pressable style={styles.stepBtn} onPress={() => changeCustomMins(1)}>
+                        <Text style={styles.stepText}>+</Text>
+                    </Pressable>
+                </View>
+            ) : null}
 
-            <Text style={styles.count}>🍅 × {completed}</Text>
+            <View style={styles.actions}>
+                <Pressable style={styles.button} onPress={endTime ? pause : start}>
+                    <Text style={styles.buttonText}>{endTime ? 'Pause' : 'Start'}</Text>
+                </Pressable>
+                {canReset ? (
+                    <Pressable style={styles.resetButton} onPress={reset}>
+                        <Text style={styles.resetButtonText}>Reset</Text>
+                    </Pressable>
+                ) : null}
+            </View>
         </View>
     );
 }
@@ -184,22 +247,53 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 32,
+        paddingBottom: 88,
     },
     breakBg: { backgroundColor: '#6d6a4f' },
-    tokenBadge: {       //adding the style for the token badge
-        position: 'absolute',
-        top: 60,
-        right: 24,
+    badges: { position: 'absolute', top: 60, right: 24, flexDirection: 'row', gap: 8 },
+    badge: {
         backgroundColor: '#ffffff33',
         paddingHorizontal: 14,
         paddingVertical: 8,
         borderRadius: 999,
     },
-    tokenText: { color: '#fff', fontSize: 18, fontWeight: '600' },
+    badgeText: { color: '#fff', fontSize: 18, fontWeight: '600' },
     tabs: { flexDirection: 'row', gap: 20 },
     tab: { color: '#ffffffaa', fontSize: 18 },
     activeTab: { color: '#fff', fontWeight: '700' },
     time: { color: '#fff', fontSize: 96, fontWeight: '200', fontVariant: ['tabular-nums'] },
+    customRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 20,
+        marginTop: -12,
+    },
+    stepBtn: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        borderWidth: 1.5,
+        borderColor: '#ffffffaa',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    stepText: {
+        color: '#fff',
+        fontSize: 24,
+        fontWeight: '500',
+        lineHeight: 28,
+    },
+    customLabel: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '600',
+        minWidth: 72,
+        textAlign: 'center',
+    },
+    actions: {
+        alignItems: 'center',
+        gap: 12,
+    },
     button: {
         backgroundColor: '#fff',
         paddingHorizontal: 48,
@@ -207,5 +301,12 @@ const styles = StyleSheet.create({
         borderRadius: 999,
     },
     buttonText: { fontSize: 20, fontWeight: '600', color: '#333' },
-    count: { color: '#fff', fontSize: 18 },
+    resetButton: {
+        paddingHorizontal: 28,
+        paddingVertical: 12,
+        borderRadius: 999,
+        borderWidth: 1.5,
+        borderColor: '#ffffffaa',
+    },
+    resetButtonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
 });

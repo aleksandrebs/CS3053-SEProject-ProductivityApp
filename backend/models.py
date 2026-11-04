@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -25,6 +25,7 @@ class User(Base):
 
     sessions = relationship("StudySession", back_populates="user")
     token_transactions = relationship("TokenTransaction", back_populates="user")
+    streak_days = relationship("StreakDay", back_populates="user")
 
 
 # one row = one timer run
@@ -71,3 +72,16 @@ class Streak(Base):
     # last time they started the timer, used for the 24 hour reset
     last_active_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# one row each day the user started the timer (for the history page)
+class StreakDay(Base):
+    __tablename__ = "streak_days"
+    __table_args__ = (UniqueConstraint("user_id", "day", name="uq_streak_day"),)
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    day = Column(Date, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    user = relationship("User", back_populates="streak_days")

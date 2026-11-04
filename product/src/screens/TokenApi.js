@@ -26,3 +26,19 @@ export const getBalance = () => request('/tokens/balance');
 // add tokens to the logged-in user's account; returns { token_balance }
 export const earnTokens = (amount) =>
     request('/tokens/earn', { method: 'POST', body: JSON.stringify({ amount }) });
+
+// current streak of the logged-in user; returns { current_streak }
+export const getStreak = () => request('/streak');
+
+// called when the timer starts so today counts for the streak
+export const checkInStreak = () => request('/streak/check-in', { method: 'POST' });
+
+// days the user started the timer; returns { current_streak, days: [{ day }] }
+export const getStreakHistory = () => request('/streak/history');
+
+// logged-in user profile from /auth/me
+export const getMe = () => request('/auth/me');
+
+// save a new username; returns the updated user
+export const updateUsername = (username) =>
+    request('/auth/me', { method: 'PATCH', body: JSON.stringify({ username }) });
