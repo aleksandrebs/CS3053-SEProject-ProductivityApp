@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 import { API_URL } from '../api';
 import { getItem } from '../storage';
+=======
+import * as SecureStore from 'expo-secure-store';
+import { API_URL, API_HEADERS } from '../api';
+>>>>>>> amex-giftcard-prototype
 
 // the login screen saves the access_token from /login or /signup
 export const getToken = () => getItem('access_token');
@@ -11,6 +16,8 @@ async function request(path, options = {}) {
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
+            ...API_HEADERS,
+            ...(options.headers || {}),
         },
     });
     if (!res.ok) {
@@ -42,3 +49,36 @@ export const getMe = () => request('/auth/me');
 // save a new username; returns the updated user
 export const updateUsername = (username) =>
     request('/auth/me', { method: 'PATCH', body: JSON.stringify({ username }) });
+
+// everyone or friends only; scope = 'all' | 'friends'
+export const getLeaderboard = (scope = 'all') =>
+    request(`/leaderboard?scope=${scope}`);
+
+export const searchUsers = (q) =>
+    request(`/users/search?q=${encodeURIComponent(q)}`);
+
+export const getFriends = () => request('/friends');
+
+export const getFriendRequests = () => request('/friends/requests');
+
+export const sendFriendRequest = (userId) =>
+    request('/friends/requests', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId }),
+    });
+
+export const acceptFriendRequest = (friendshipId) =>
+    request(`/friends/requests/${friendshipId}/accept`, { method: 'POST' });
+
+export const rejectFriendRequest = (friendshipId) =>
+    request(`/friends/requests/${friendshipId}/reject`, { method: 'POST' });
+
+// Amex / café rewards catalog + current balance
+export const getRewards = () => request('/rewards');
+
+// spend tokens on a reward; returns { token_balance, redemption }
+export const redeemReward = (rewardId) =>
+    request(`/rewards/${rewardId}/redeem`, { method: 'POST' });
+
+// past redemptions with gift codes
+export const getRedemptions = () => request('/redemptions');

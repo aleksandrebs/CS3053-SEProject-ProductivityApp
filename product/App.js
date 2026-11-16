@@ -7,6 +7,7 @@ import SignUpScreen from './src/screens/SignUpScreen';
 import TimerScreen from './src/screens/TimerScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import RedeemScreen from './src/screens/RedeemScreen';
 import StreakScreen from './src/screens/StreakScreen';
 import BottomTabBar from './src/components/BottomTabBar';
 
@@ -56,6 +57,7 @@ export default function App() {
         ) : (
           <>
             {activeTab === 'leaderboard' && <LeaderboardScreen />}
+            {activeTab === 'redeem' && <RedeemScreen />}
             {activeTab === 'profile' && (
               <ProfileScreen onOpenStreak={() => setOverlay('streak')} />
             )}

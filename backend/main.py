@@ -8,10 +8,54 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import Base, SessionLocal, engine
-from models import Streak, StreakDay, StudySession, TokenTransaction, User
+from models import (
+    Friendship,
+    Redemption,
+    Reward,
+    Streak,
+    StreakDay,
+    StudySession,
+    TokenTransaction,
+    User,
+)
 
 # creates tables if they are missing
 Base.metadata.create_all(bind=engine)
+
+
+def seed_rewards():
+    db = SessionLocal()
+    try:
+        samples = [
+            {
+                "slug": "free_croissant",
+                "name": "Free croissant",
+                "description": "One croissant at the campus café",
+                "token_cost": 5,
+            },
+            {
+                "slug": "free_coffee",
+                "name": "Free coffee",
+                "description": "One coffee at the campus café",
+                "token_cost": 10,
+            },
+            {
+                "slug": "amex_5_giftcard",
+                "name": "€5 Amex gift card",
+                "description": "Prototype American Express gift card",
+                "token_cost": 20,
+            },
+        ]
+        for item in samples:
+            exists = db.query(Reward).filter(Reward.slug == item["slug"]).first()
+            if exists is None:
+                db.add(Reward(**item, available=True))
+        db.commit()
+    finally:
+        db.close()
+
+
+seed_rewards()
 
 app = FastAPI()
 
@@ -478,6 +522,11 @@ def streak_check_in(
 class EarnTokensRequest(BaseModel):
     amount: int
 
+
+class FriendRequestBody(BaseModel):
+    user_id: int
+
+
 # the app calls this every time the user has used the timer for another 5 minutes
 @app.post("/tokens/earn")
 def earn_tokens(
@@ -489,8 +538,10 @@ def earn_tokens(
     if data.amount < 1 or data.amount > 12:
         raise HTTPException(status_code=400, detail="amount must be between 1 and 12.")
 
-    # saved on the logged-in user, so it stays on their account permanently
+    # 1 token = 5 minutes on the timer — keep study time in sync for the leaderboard
+    minutes = data.amount * 5
     user.token_balance += data.amount
+    user.total_study_time = (user.total_study_time or 0) + minutes
     db.add(
         TokenTransaction(
             user_id=user.id,
@@ -501,4 +552,368 @@ def earn_tokens(
     )
     db.commit()
     db.refresh(user)
-    return {"token_balance": user.token_balance}
+    return {
+        "token_balance": user.token_balance,
+        "total_study_time": user.total_study_time,
+    }
+
+
+# ----- leaderboard + friends -----
+
+def public_stats(user: User, rank: int | None = None):
+    row = {
+        "id": user.id,
+        "name": user.name,
+        "username": user.username,
+        "token_balance": user.token_balance or 0,
+        "current_streak": user.current_streak or 0,
+        "total_study_time": user.total_study_time or 0,
+    }
+    if rank is not None:
+        row["rank"] = rank
+    return row
+
+
+def accepted_friend_ids(user_id: int, db: Session):
+    rows = (
+        db.query(Friendship)
+        .filter(
+            Friendship.status == "accepted",
+            (Friendship.requester_id == user_id) | (Friendship.addressee_id == user_id),
+        )
+        .all()
+    )
+    ids = set()
+    for r in rows:
+        ids.add(r.requester_id if r.addressee_id == user_id else r.addressee_id)
+    return ids
+
+
+def rank_users(rows):
+    # 1) study time  2) tokens  3) streak
+    ordered = sorted(
+        rows,
+        key=lambda u: (
+            -(u.total_study_time or 0),
+            -(u.token_balance or 0),
+            -(u.current_streak or 0),
+            u.id,
+        ),
+    )
+    return [public_stats(u, rank=i + 1) for i, u in enumerate(ordered)]
+
+
+@app.get("/leaderboard")
+def leaderboard(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    scope: str = "all",
+):
+    # scope=all -> everyone, scope=friends -> only accepted friends (+ you)
+    if scope not in ("all", "friends"):
+        raise HTTPException(status_code=400, detail="scope must be 'all' or 'friends'.")
+
+    q = db.query(User)
+    if scope == "friends":
+        friend_ids = accepted_friend_ids(user.id, db)
+        friend_ids.add(user.id)
+        q = q.filter(User.id.in_(friend_ids))
+
+    rows = q.all()
+    items = rank_users(rows)
+    my_rank = next((row["rank"] for row in items if row["id"] == user.id), None)
+    return {
+        "scope": scope,
+        "my_rank": my_rank,
+        "items": items,
+    }
+
+
+@app.get("/users/search")
+def search_users(
+    q: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    term = (q or "").strip()
+    if len(term) < 1:
+        return {"items": []}
+
+    like = f"%{term}%"
+    rows = (
+        db.query(User)
+        .filter(
+            User.id != user.id,
+            (User.username.ilike(like)) | (User.name.ilike(like)) | (User.email.ilike(like)),
+        )
+        .order_by(User.name.asc())
+        .limit(20)
+        .all()
+    )
+
+    if not rows:
+        return {"items": []}
+
+    ids = [u.id for u in rows]
+    friend_map = {}
+    for r in (
+        db.query(Friendship)
+        .filter(
+            ((Friendship.requester_id == user.id) & (Friendship.addressee_id.in_(ids)))
+            | ((Friendship.addressee_id == user.id) & (Friendship.requester_id.in_(ids)))
+        )
+        .all()
+    ):
+        other = r.addressee_id if r.requester_id == user.id else r.requester_id
+        friend_map[other] = {
+            "status": r.status,
+            "direction": "outgoing" if r.requester_id == user.id else "incoming",
+            "friendship_id": r.id,
+        }
+
+    items = []
+    for u in rows:
+        item = public_stats(u)
+        rel = friend_map.get(u.id)
+        item["friendship"] = rel
+        items.append(item)
+    return {"items": items}
+
+
+@app.post("/friends/requests", status_code=201)
+def send_friend_request(
+    data: FriendRequestBody,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if data.user_id == user.id:
+        raise HTTPException(status_code=400, detail="You cannot friend yourself.")
+
+    other = db.query(User).filter(User.id == data.user_id).first()
+    if other is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    existing = (
+        db.query(Friendship)
+        .filter(
+            ((Friendship.requester_id == user.id) & (Friendship.addressee_id == data.user_id))
+            | ((Friendship.requester_id == data.user_id) & (Friendship.addressee_id == user.id))
+        )
+        .first()
+    )
+    if existing:
+        if existing.status == "accepted":
+            raise HTTPException(status_code=409, detail="You are already friends.")
+        if existing.status == "pending":
+            raise HTTPException(status_code=409, detail="Friend request already pending.")
+        # rejected before — allow a new pending request from this user
+        existing.requester_id = user.id
+        existing.addressee_id = data.user_id
+        existing.status = "pending"
+        db.commit()
+        db.refresh(existing)
+        return {
+            "id": existing.id,
+            "status": existing.status,
+            "user": public_stats(other),
+        }
+
+    row = Friendship(
+        requester_id=user.id,
+        addressee_id=data.user_id,
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"id": row.id, "status": row.status, "user": public_stats(other)}
+
+
+@app.post("/friends/requests/{friendship_id}/accept")
+def accept_friend_request(
+    friendship_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.query(Friendship).filter(Friendship.id == friendship_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Request not found.")
+    if row.addressee_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your request to accept.")
+    if row.status != "pending":
+        raise HTTPException(status_code=409, detail="Request is not pending.")
+
+    row.status = "accepted"
+    db.commit()
+    db.refresh(row)
+    other = db.query(User).filter(User.id == row.requester_id).first()
+    return {"id": row.id, "status": row.status, "user": public_stats(other)}
+
+
+@app.post("/friends/requests/{friendship_id}/reject")
+def reject_friend_request(
+    friendship_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = db.query(Friendship).filter(Friendship.id == friendship_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Request not found.")
+    if row.addressee_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your request to reject.")
+    if row.status != "pending":
+        raise HTTPException(status_code=409, detail="Request is not pending.")
+
+    row.status = "rejected"
+    db.commit()
+    return {"id": row.id, "status": row.status}
+
+
+@app.get("/friends")
+def list_friends(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    friend_ids = accepted_friend_ids(user.id, db)
+    if not friend_ids:
+        return {"items": []}
+
+    rows = db.query(User).filter(User.id.in_(friend_ids)).all()
+    return {"items": rank_users(rows)}
+
+
+@app.get("/friends/requests")
+def list_friend_requests(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    incoming = (
+        db.query(Friendship)
+        .filter(Friendship.addressee_id == user.id, Friendship.status == "pending")
+        .all()
+    )
+    outgoing = (
+        db.query(Friendship)
+        .filter(Friendship.requester_id == user.id, Friendship.status == "pending")
+        .all()
+    )
+
+    def pack(rows, other_field):
+        items = []
+        for r in rows:
+            other_id = getattr(r, other_field)
+            other = db.query(User).filter(User.id == other_id).first()
+            if other:
+                items.append(
+                    {
+                        "friendship_id": r.id,
+                        "status": r.status,
+                        "user": public_stats(other),
+                    }
+                )
+        return items
+
+    return {
+        "incoming": pack(incoming, "requester_id"),
+        "outgoing": pack(outgoing, "addressee_id"),
+    }
+
+
+# ----- rewards / Amex gift card prototype -----
+
+def reward_to_dict(reward: Reward):
+    return {
+        "id": reward.id,
+        "slug": reward.slug,
+        "name": reward.name,
+        "description": reward.description,
+        "token_cost": reward.token_cost,
+        "available": reward.available,
+    }
+
+
+def redemption_to_dict(row: Redemption, reward: Reward | None = None):
+    r = reward or row.reward
+    return {
+        "id": row.id,
+        "reward_id": row.reward_id,
+        "reward_name": r.name if r else None,
+        "token_cost": row.token_cost,
+        "code": row.code,
+        "status": row.status,
+        "created_at": row.created_at,
+    }
+
+
+def make_gift_code(slug: str):
+    tag = slug.replace("_", "-").upper()[:12]
+    return f"AMEX-{tag}-{secrets.token_hex(3).upper()}"
+
+
+@app.get("/rewards")
+def list_rewards(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (
+        db.query(Reward)
+        .filter(Reward.available == True)  # noqa: E712
+        .order_by(Reward.token_cost.asc())
+        .all()
+    )
+    return {
+        "token_balance": user.token_balance,
+        "items": [reward_to_dict(r) for r in rows],
+    }
+
+
+@app.post("/rewards/{reward_id}/redeem")
+def redeem_reward(
+    reward_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    reward = db.query(Reward).filter(Reward.id == reward_id).first()
+    if reward is None or not reward.available:
+        raise HTTPException(status_code=404, detail="Reward not found.")
+
+    if user.token_balance < reward.token_cost:
+        raise HTTPException(status_code=400, detail="Not enough tokens.")
+
+    user.token_balance -= reward.token_cost
+    code = make_gift_code(reward.slug)
+    redemption = Redemption(
+        user_id=user.id,
+        reward_id=reward.id,
+        token_cost=reward.token_cost,
+        code=code,
+        status="completed",
+    )
+    db.add(redemption)
+    db.add(
+        TokenTransaction(
+            user_id=user.id,
+            amount=reward.token_cost,
+            type="spend",
+            reason="reward_redeem",
+        )
+    )
+    db.commit()
+    db.refresh(user)
+    db.refresh(redemption)
+    return {
+        "token_balance": user.token_balance,
+        "redemption": redemption_to_dict(redemption, reward),
+    }
+
+
+@app.get("/redemptions")
+def list_redemptions(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(Redemption)
+        .filter(Redemption.user_id == user.id)
+        .order_by(Redemption.id.desc())
+        .limit(30)
+        .all()
+    )
+    return {"items": [redemption_to_dict(r) for r in rows]}
