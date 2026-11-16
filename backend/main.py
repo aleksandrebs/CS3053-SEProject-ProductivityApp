@@ -110,6 +110,11 @@ def home():
     return {"message": "Backend is running"}
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 # ----- auth (keeps /signup and /login for the current mobile screens) -----
 
 @app.post("/signup", status_code=201)

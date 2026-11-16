@@ -1,8 +1,7 @@
-import * as SecureStore from 'expo-secure-store';
 import { API_URL } from '../api';
+import { getToken } from '../storage';
 
-//the login screen saves the access_token from /login or /signup
-export const getToken = () => SecureStore.getItemAsync('access_token');
+export { getToken };
 
 async function request(path, options = {}) {
     const token = await getToken();
