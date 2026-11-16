@@ -1,15 +1,12 @@
-<<<<<<< HEAD
-// Backend address.
-// - Local phone/Expo: use your laptop IP (ipconfig -> Wi-Fi IPv4)
-// - Vercel web demo: set EXPO_PUBLIC_API_URL to a public API URL (ngrok / Railway / etc.)
-export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL || 'http://172.20.10.2:8000';
-=======
-// Backend address (laptop Wi-Fi / hotspot IPv4 from ipconfig).
-// Keep ngrok headers in case we switch back to a tunnel URL.
-export const API_URL = 'http://172.20.10.3:8000';
+// Backend URL.
+// - Local Expo Go on a phone: use your laptop Wi-Fi IP, e.g. http://192.168.x.x:8000
+// - Vercel web deploy: set EXPO_PUBLIC_API_URL to your backend's https://....vercel.app
+const fromEnv = process.env.EXPO_PUBLIC_API_URL;
 
+export const API_URL =
+  (fromEnv && fromEnv.replace(/\/$/, '')) || 'http://127.0.0.1:8000';
+
+// Keep ngrok headers in case we switch back to a tunnel URL.
 export const API_HEADERS = {
   'ngrok-skip-browser-warning': 'true',
 };
->>>>>>> amex-giftcard-prototype

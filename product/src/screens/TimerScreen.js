@@ -26,7 +26,7 @@ if (!IS_WEB) {
 }
 
 export default function TimerScreen({ onOpenStreak }) {
-    useKeepAwake();
+    useKeepAwake(); // phones: keep screen on; web: Wake Lock / no-op
 
     const [mode, setMode] = useState('work');
     const [endTime, setEndTime] = useState(null); // null = paused
@@ -50,7 +50,9 @@ export default function TimerScreen({ onOpenStreak }) {
     }
 
     useEffect(() => {
-        if (!IS_WEB) Notifications.requestPermissionsAsync();
+        if (!IS_WEB) {
+            Notifications.requestPermissionsAsync();
+        }
     }, []);
 
     // loads the saved balance and streak from the user's account when the screen is open

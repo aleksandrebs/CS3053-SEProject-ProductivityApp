@@ -2,3 +2,5 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 bcrypt
+psycopg2-binary
+python-dotenv

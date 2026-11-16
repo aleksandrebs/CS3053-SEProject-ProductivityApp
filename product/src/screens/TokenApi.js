@@ -1,10 +1,5 @@
-<<<<<<< HEAD
-import { API_URL } from '../api';
-import { getItem } from '../storage';
-=======
-import * as SecureStore from 'expo-secure-store';
 import { API_URL, API_HEADERS } from '../api';
->>>>>>> amex-giftcard-prototype
+import { getItem } from '../storage';
 
 // the login screen saves the access_token from /login or /signup
 export const getToken = () => getItem('access_token');
