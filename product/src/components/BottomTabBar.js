@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 const TABS = [
   { key: 'leaderboard', label: 'Board', icon: 'trophy-outline', iconActive: 'trophy' },
   { key: 'timer', label: 'Timer', icon: 'timer-outline', iconActive: 'timer' },
+  { key: 'redeem', label: 'Redeem', icon: 'gift-outline', iconActive: 'gift' },
   { key: 'profile', label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 ];
 
@@ -36,7 +37,7 @@ export default function BottomTabBar({ activeTab, onChangeTab }) {
                 <View style={[styles.pill, active && styles.pillOn]}>
                   <Ionicons
                     name={active ? tab.iconActive : tab.icon}
-                    size={20}
+                    size={18}
                     color={active ? '#111' : '#11111188'}
                   />
                   <Text style={[styles.label, active && styles.labelOn]}>{tab.label}</Text>
@@ -57,12 +58,12 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     alignItems: 'center',
-    paddingHorizontal: 36,
+    paddingHorizontal: 16,
     paddingBottom: Platform.OS === 'ios' ? 26 : 16,
   },
   shell: {
     width: '100%',
-    maxWidth: 320,
+    maxWidth: 400,
     borderRadius: 999,
     overflow: 'hidden',
     borderWidth: 1,
@@ -91,26 +92,26 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 6,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
   },
   pill: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 5,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    gap: 2,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
     borderRadius: 999,
   },
   pillOn: {
     backgroundColor: 'rgba(255,255,255,0.62)',
   },
   label: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
     color: '#11111188',
   },

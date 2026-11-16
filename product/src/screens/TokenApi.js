@@ -1,7 +1,8 @@
-import { API_URL } from '../api';
-import { getToken } from '../storage';
+import { API_URL, API_HEADERS } from '../api';
+import { getItem } from '../storage';
 
-export { getToken };
+// the login screen saves the access_token from /login or /signup
+export const getToken = () => getItem('access_token');
 
 async function request(path, options = {}) {
     const token = await getToken();
@@ -10,6 +11,8 @@ async function request(path, options = {}) {
         headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
+            ...API_HEADERS,
+            ...(options.headers || {}),
         },
     });
     if (!res.ok) {
@@ -64,3 +67,13 @@ export const acceptFriendRequest = (friendshipId) =>
 
 export const rejectFriendRequest = (friendshipId) =>
     request(`/friends/requests/${friendshipId}/reject`, { method: 'POST' });
+
+// Amex / café rewards catalog + current balance
+export const getRewards = () => request('/rewards');
+
+// spend tokens on a reward; returns { token_balance, redemption }
+export const redeemReward = (rewardId) =>
+    request(`/rewards/${rewardId}/redeem`, { method: 'POST' });
+
+// past redemptions with gift codes
+export const getRedemptions = () => request('/redemptions');

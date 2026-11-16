@@ -1,28 +1,30 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
-const KEY = 'access_token';
-
-// SecureStore works on phones; browsers use localStorage instead.
-export async function saveToken(token) {
+// phone uses SecureStore; browser uses localStorage so the web demo works
+export async function getItem(key) {
   if (Platform.OS === 'web') {
-    localStorage.setItem(KEY, token);
-    return;
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
   }
-  await SecureStore.setItemAsync(KEY, token);
+  return SecureStore.getItemAsync(key);
 }
 
-export async function getToken() {
+export async function setItem(key, value) {
   if (Platform.OS === 'web') {
-    return localStorage.getItem(KEY);
-  }
-  return SecureStore.getItemAsync(KEY);
-}
-
-export async function clearToken() {
-  if (Platform.OS === 'web') {
-    localStorage.removeItem(KEY);
+    localStorage.setItem(key, value);
     return;
   }
-  await SecureStore.deleteItemAsync(KEY);
+  await SecureStore.setItemAsync(key, value);
+}
+
+export async function deleteItem(key) {
+  if (Platform.OS === 'web') {
+    localStorage.removeItem(key);
+    return;
+  }
+  await SecureStore.deleteItemAsync(key);
 }

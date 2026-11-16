@@ -137,7 +137,7 @@ export default function TimerScreen({ onOpenStreak }) {
             .then((r) => setStreak(r.current_streak))
             .catch((e) => console.warn('Could not update streak', e));
 
-        // Fires even if the app is in the background (native only)
+        // phone only — browsers don't support scheduled local notifications the same way
         if (!IS_WEB) {
             notifId.current = await Notifications.scheduleNotificationAsync({
                 content: { title: notifTitle() },
@@ -151,7 +151,7 @@ export default function TimerScreen({ onOpenStreak }) {
 
     async function pause() {
         setEndTime(null);
-        if (notifId.current && !IS_WEB) {
+        if (!IS_WEB && notifId.current) {
             await Notifications.cancelScheduledNotificationAsync(notifId.current);
             notifId.current = null;
         }

@@ -1,3 +1,11 @@
 .neon
 node_modules/
 .env.local
+
+# local editor / IDE folders
+.cursor/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db

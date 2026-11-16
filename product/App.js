@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { saveToken } from './src/storage';
+import { setItem } from './src/storage';
 import LoginScreen from './src/screens/LoginScreen';
 import SignUpScreen from './src/screens/SignUpScreen';
 import TimerScreen from './src/screens/TimerScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import RedeemScreen from './src/screens/RedeemScreen';
 import StreakScreen from './src/screens/StreakScreen';
 import BottomTabBar from './src/components/BottomTabBar';
 
@@ -27,7 +28,7 @@ export default function App() {
     setToken(accessToken);
     // TokenApi.js reads the token from here, so it has to be saved
     // before the timer screen opens and asks for the balance
-    await saveToken(accessToken);
+    await setItem('access_token', accessToken);
     setActiveTab('timer');
     setOverlay(null);
     setScreen('main');
@@ -56,6 +57,7 @@ export default function App() {
         ) : (
           <>
             {activeTab === 'leaderboard' && <LeaderboardScreen />}
+            {activeTab === 'redeem' && <RedeemScreen />}
             {activeTab === 'profile' && (
               <ProfileScreen onOpenStreak={() => setOverlay('streak')} />
             )}

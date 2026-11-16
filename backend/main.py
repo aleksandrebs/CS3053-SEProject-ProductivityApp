@@ -8,10 +8,54 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import Base, SessionLocal, engine
-from models import Friendship, Streak, StreakDay, StudySession, TokenTransaction, User
+from models import (
+    Friendship,
+    Redemption,
+    Reward,
+    Streak,
+    StreakDay,
+    StudySession,
+    TokenTransaction,
+    User,
+)
 
 # creates tables if they are missing
 Base.metadata.create_all(bind=engine)
+
+
+def seed_rewards():
+    db = SessionLocal()
+    try:
+        samples = [
+            {
+                "slug": "free_croissant",
+                "name": "Free croissant",
+                "description": "One croissant at the campus café",
+                "token_cost": 5,
+            },
+            {
+                "slug": "free_coffee",
+                "name": "Free coffee",
+                "description": "One coffee at the campus café",
+                "token_cost": 10,
+            },
+            {
+                "slug": "amex_5_giftcard",
+                "name": "€5 Amex gift card",
+                "description": "Prototype American Express gift card",
+                "token_cost": 20,
+            },
+        ]
+        for item in samples:
+            exists = db.query(Reward).filter(Reward.slug == item["slug"]).first()
+            if exists is None:
+                db.add(Reward(**item, available=True))
+        db.commit()
+    finally:
+        db.close()
+
+
+seed_rewards()
 
 app = FastAPI()
 
@@ -499,8 +543,10 @@ def earn_tokens(
     if data.amount < 1 or data.amount > 12:
         raise HTTPException(status_code=400, detail="amount must be between 1 and 12.")
 
-    # saved on the logged-in user, so it stays on their account permanently
+    # 1 token = 5 minutes on the timer — keep study time in sync for the leaderboard
+    minutes = data.amount * 5
     user.token_balance += data.amount
+    user.total_study_time = (user.total_study_time or 0) + minutes
     db.add(
         TokenTransaction(
             user_id=user.id,
@@ -511,7 +557,10 @@ def earn_tokens(
     )
     db.commit()
     db.refresh(user)
-    return {"token_balance": user.token_balance}
+    return {
+        "token_balance": user.token_balance,
+        "total_study_time": user.total_study_time,
+    }
 
 
 # ----- leaderboard + friends -----
@@ -545,6 +594,20 @@ def accepted_friend_ids(user_id: int, db: Session):
     return ids
 
 
+def rank_users(rows):
+    # 1) study time  2) tokens  3) streak
+    ordered = sorted(
+        rows,
+        key=lambda u: (
+            -(u.total_study_time or 0),
+            -(u.token_balance or 0),
+            -(u.current_streak or 0),
+            u.id,
+        ),
+    )
+    return [public_stats(u, rank=i + 1) for i, u in enumerate(ordered)]
+
+
 @app.get("/leaderboard")
 def leaderboard(
     user: User = Depends(get_current_user),
@@ -552,19 +615,23 @@ def leaderboard(
     scope: str = "all",
 ):
     # scope=all -> everyone, scope=friends -> only accepted friends (+ you)
+    if scope not in ("all", "friends"):
+        raise HTTPException(status_code=400, detail="scope must be 'all' or 'friends'.")
+
     q = db.query(User)
     if scope == "friends":
         friend_ids = accepted_friend_ids(user.id, db)
         friend_ids.add(user.id)
-        if len(friend_ids) == 1:
-            # only you — still show your row
-            q = q.filter(User.id == user.id)
-        else:
-            q = q.filter(User.id.in_(friend_ids))
+        q = q.filter(User.id.in_(friend_ids))
 
-    rows = q.order_by(User.total_study_time.desc(), User.token_balance.desc()).all()
-    items = [public_stats(u, rank=i + 1) for i, u in enumerate(rows)]
-    return {"scope": scope, "items": items}
+    rows = q.all()
+    items = rank_users(rows)
+    my_rank = next((row["rank"] for row in items if row["id"] == user.id), None)
+    return {
+        "scope": scope,
+        "my_rank": my_rank,
+        "items": items,
+    }
 
 
 @app.get("/users/search")
@@ -716,13 +783,8 @@ def list_friends(
     if not friend_ids:
         return {"items": []}
 
-    rows = (
-        db.query(User)
-        .filter(User.id.in_(friend_ids))
-        .order_by(User.total_study_time.desc())
-        .all()
-    )
-    return {"items": [public_stats(u) for u in rows]}
+    rows = db.query(User).filter(User.id.in_(friend_ids)).all()
+    return {"items": rank_users(rows)}
 
 
 @app.get("/friends/requests")
@@ -760,3 +822,103 @@ def list_friend_requests(
         "incoming": pack(incoming, "requester_id"),
         "outgoing": pack(outgoing, "addressee_id"),
     }
+
+
+# ----- rewards / Amex gift card prototype -----
+
+def reward_to_dict(reward: Reward):
+    return {
+        "id": reward.id,
+        "slug": reward.slug,
+        "name": reward.name,
+        "description": reward.description,
+        "token_cost": reward.token_cost,
+        "available": reward.available,
+    }
+
+
+def redemption_to_dict(row: Redemption, reward: Reward | None = None):
+    r = reward or row.reward
+    return {
+        "id": row.id,
+        "reward_id": row.reward_id,
+        "reward_name": r.name if r else None,
+        "token_cost": row.token_cost,
+        "code": row.code,
+        "status": row.status,
+        "created_at": row.created_at,
+    }
+
+
+def make_gift_code(slug: str):
+    tag = slug.replace("_", "-").upper()[:12]
+    return f"AMEX-{tag}-{secrets.token_hex(3).upper()}"
+
+
+@app.get("/rewards")
+def list_rewards(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (
+        db.query(Reward)
+        .filter(Reward.available == True)  # noqa: E712
+        .order_by(Reward.token_cost.asc())
+        .all()
+    )
+    return {
+        "token_balance": user.token_balance,
+        "items": [reward_to_dict(r) for r in rows],
+    }
+
+
+@app.post("/rewards/{reward_id}/redeem")
+def redeem_reward(
+    reward_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    reward = db.query(Reward).filter(Reward.id == reward_id).first()
+    if reward is None or not reward.available:
+        raise HTTPException(status_code=404, detail="Reward not found.")
+
+    if user.token_balance < reward.token_cost:
+        raise HTTPException(status_code=400, detail="Not enough tokens.")
+
+    user.token_balance -= reward.token_cost
+    code = make_gift_code(reward.slug)
+    redemption = Redemption(
+        user_id=user.id,
+        reward_id=reward.id,
+        token_cost=reward.token_cost,
+        code=code,
+        status="completed",
+    )
+    db.add(redemption)
+    db.add(
+        TokenTransaction(
+            user_id=user.id,
+            amount=reward.token_cost,
+            type="spend",
+            reason="reward_redeem",
+        )
+    )
+    db.commit()
+    db.refresh(user)
+    db.refresh(redemption)
+    return {
+        "token_balance": user.token_balance,
+        "redemption": redemption_to_dict(redemption, reward),
+    }
+
+
+@app.get("/redemptions")
+def list_redemptions(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(Redemption)
+        .filter(Redemption.user_id == user.id)
+        .order_by(Redemption.id.desc())
+        .limit(30)
+        .all()
+    )
+    return {"items": [redemption_to_dict(r) for r in rows]}
