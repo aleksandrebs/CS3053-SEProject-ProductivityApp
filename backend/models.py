@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -26,6 +26,7 @@ class User(Base):
     sessions = relationship("StudySession", back_populates="user")
     token_transactions = relationship("TokenTransaction", back_populates="user")
     streak_days = relationship("StreakDay", back_populates="user")
+    redemptions = relationship("Redemption", back_populates="user")
 
 
 # friend request / accepted friendship between two users
@@ -101,3 +102,35 @@ class StreakDay(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     user = relationship("User", back_populates="streak_days")
+
+
+# café / Amex rewards you can buy with tokens
+class Reward(Base):
+    __tablename__ = "rewards"
+
+    id = Column(Integer, primary_key=True)
+    slug = Column(String(50), unique=True, nullable=False)
+    name = Column(String(120), nullable=False)
+    description = Column(String(255), nullable=True)
+    token_cost = Column(Integer, nullable=False)
+    available = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    redemptions = relationship("Redemption", back_populates="reward")
+
+
+# one row each time a user redeems a reward
+class Redemption(Base):
+    __tablename__ = "redemptions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    reward_id = Column(Integer, ForeignKey("rewards.id"), nullable=False)
+    token_cost = Column(Integer, nullable=False)
+    # short code shown in the app (prototype gift code)
+    code = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False, default="completed")
+    created_at = Column(DateTime, server_default=func.now())
+
+    user = relationship("User", back_populates="redemptions")
+    reward = relationship("Reward", back_populates="redemptions")

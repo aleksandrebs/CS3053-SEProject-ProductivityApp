@@ -27,18 +27,29 @@ function formatMinutes(mins) {
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
+function rankBadge(rank) {
+  if (rank === 1) return '1';
+  if (rank === 2) return '2';
+  if (rank === 3) return '3';
+  return `#${rank ?? '—'}`;
+}
+
 function RankRow({ item, highlight }) {
   const label = item.username ? `@${item.username}` : item.name;
+  const top = item.rank >= 1 && item.rank <= 3;
   return (
-    <View style={[styles.row, highlight && styles.rowMe]}>
-      <Text style={styles.rank}>#{item.rank ?? '—'}</Text>
+    <View style={[styles.row, highlight && styles.rowMe, top && styles.rowTop]}>
+      <View style={[styles.rankBubble, top && styles.rankBubbleTop]}>
+        <Text style={[styles.rank, top && styles.rankTop]}>{rankBadge(item.rank)}</Text>
+      </View>
       <View style={styles.rowMain}>
         <Text style={styles.rowName} numberOfLines={1}>
           {label}
+          {highlight ? '  · you' : ''}
         </Text>
+        <Text style={styles.rowPrimary}>{formatMinutes(item.total_study_time)} studied</Text>
         <Text style={styles.rowMeta} numberOfLines={1}>
-          {formatMinutes(item.total_study_time)} studied · {item.token_balance} tokens ·{' '}
-          {item.current_streak} day streak
+          {item.token_balance} tokens · {item.current_streak} day streak
         </Text>
       </View>
     </View>
@@ -48,6 +59,7 @@ function RankRow({ item, highlight }) {
 export default function LeaderboardScreen() {
   const [tab, setTab] = useState('all'); // all | friends | add
   const [items, setItems] = useState([]);
+  const [myRank, setMyRank] = useState(null);
   const [me, setMe] = useState(null);
   const [incoming, setIncoming] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,6 +72,7 @@ export default function LeaderboardScreen() {
   const loadBoard = useCallback(async (scope) => {
     const data = await getLeaderboard(scope);
     setItems(data.items || []);
+    setMyRank(data.my_rank ?? null);
   }, []);
 
   const loadRequests = useCallback(async () => {
@@ -163,7 +176,9 @@ export default function LeaderboardScreen() {
   const listHeader = (
     <View>
       <Text style={styles.heading}>Leaderboard</Text>
-      <Text style={styles.subheading}>Study time, tokens, and streaks</Text>
+      <Text style={styles.subheading}>
+        Ranked by study time, then tokens, then streak
+      </Text>
 
       <View style={styles.tabs}>
         {[
@@ -180,6 +195,17 @@ export default function LeaderboardScreen() {
           </Pressable>
         ))}
       </View>
+
+      {tab !== 'add' && myRank ? (
+        <View style={styles.youCard}>
+          <Text style={styles.youLabel}>Your place</Text>
+          <Text style={styles.youRank}>#{myRank}</Text>
+          <Text style={styles.youMeta}>
+            {formatMinutes(me?.total_study_time)} · {me?.token_balance ?? 0} tokens ·{' '}
+            {me?.current_streak ?? 0} streak
+          </Text>
+        </View>
+      ) : null}
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
     </View>
@@ -301,7 +327,13 @@ export default function LeaderboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c1121f" />
         }
         ListHeaderComponent={listHeader}
-        ListEmptyComponent={<Text style={styles.empty}>No one on the board yet.</Text>}
+        ListEmptyComponent={
+          <Text style={styles.empty}>
+            {tab === 'friends'
+              ? 'Add friends to compare with them here.'
+              : 'No one on the board yet.'}
+          </Text>
+        }
         renderItem={({ item }) => (
           <RankRow item={item} highlight={me && item.id === me.id} />
         )}
@@ -361,6 +393,30 @@ const styles = StyleSheet.create({
   tabTextOn: {
     color: '#1c1c1a',
   },
+  youCard: {
+    backgroundColor: '#1c1c1a',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+  },
+  youLabel: {
+    color: '#ffffff99',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  youRank: {
+    color: '#fff',
+    fontSize: 32,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  youMeta: {
+    color: '#ffffff99',
+    fontSize: 13,
+    marginTop: 4,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -370,16 +426,33 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#e6e6e2',
+    gap: 12,
   },
   rowMe: {
     borderColor: '#c1121f',
     borderWidth: 1.5,
   },
+  rowTop: {
+    backgroundColor: '#fffaf8',
+  },
+  rankBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#ecece8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankBubbleTop: {
+    backgroundColor: '#c1121f',
+  },
   rank: {
-    width: 40,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#8a8a86',
+    color: '#6f6f6a',
+  },
+  rankTop: {
+    color: '#fff',
   },
   rowMain: {
     flex: 1,
@@ -389,8 +462,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1c1c1a',
   },
+  rowPrimary: {
+    marginTop: 3,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1c1c1a',
+  },
   rowMeta: {
-    marginTop: 4,
+    marginTop: 2,
     fontSize: 13,
     color: '#6f6f6a',
   },

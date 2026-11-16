@@ -9,7 +9,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { API_URL } from '../api';
+import { API_URL, API_HEADERS } from '../api';
 import PopupAlert from '../components/PopupAlert';
 
 function errorText(detail) {
@@ -43,11 +43,18 @@ export default function SignUpScreen({ onSignUp, onBackToLogin }) {
 
     setBusy(true);
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
       const response = await fetch(API_URL + '/signup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...API_HEADERS,
+        },
         body: JSON.stringify({ name: name, email: email, password: password }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       const data = await response.json();
 
       if (!response.ok) {
