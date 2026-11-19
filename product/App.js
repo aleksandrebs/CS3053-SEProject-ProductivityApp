@@ -9,13 +9,14 @@ import LeaderboardScreen from './src/screens/LeaderboardScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import RedeemScreen from './src/screens/RedeemScreen';
 import StreakScreen from './src/screens/StreakScreen';
+import StatsScreen from './src/screens/StatsScreen';
 import BottomTabBar from './src/components/BottomTabBar';
 
 export default function App() {
   // which screen we're on: 'login', 'signup' or 'main' (logged in)
   const [screen, setScreen] = useState('login');
 
-  // tab inside the logged-in area: leaderboard | timer | profile
+  // tab inside the logged-in area: leaderboard | timer | redeem | stats | profile
   const [activeTab, setActiveTab] = useState('timer');
 
   // full-screen pages on top of the tabs (streak history, etc.)
@@ -58,6 +59,7 @@ export default function App() {
           <>
             {activeTab === 'leaderboard' && <LeaderboardScreen />}
             {activeTab === 'redeem' && <RedeemScreen />}
+            {activeTab === 'stats' && <StatsScreen />}
             {activeTab === 'profile' && (
               <ProfileScreen onOpenStreak={() => setOverlay('streak')} />
             )}

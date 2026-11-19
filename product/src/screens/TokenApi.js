@@ -77,3 +77,17 @@ export const redeemReward = (rewardId) =>
 
 // past redemptions with gift codes
 export const getRedemptions = () => request('/redemptions');
+
+// ----- study stats + history -----
+
+// save one finished or cancelled timer run (does not give tokens again)
+export const logStudySession = (session) =>
+    request('/study/log', { method: 'POST', body: JSON.stringify(session) });
+
+// past study sessions, newest first; returns { items: [...] }
+export const getStudyHistory = (limit = 50) =>
+    request(`/study/history?limit=${limit}`);
+
+// totals for today / this week / all time, using the phone's time zone
+export const getStudyStats = () =>
+    request(`/study/stats?tz_offset=${new Date().getTimezoneOffset()}`);

@@ -6,6 +6,7 @@ const TABS = [
   { key: 'leaderboard', label: 'Board', icon: 'trophy-outline', iconActive: 'trophy' },
   { key: 'timer', label: 'Timer', icon: 'timer-outline', iconActive: 'timer' },
   { key: 'redeem', label: 'Redeem', icon: 'gift-outline', iconActive: 'gift' },
+  { key: 'stats', label: 'Stats', icon: 'stats-chart-outline', iconActive: 'stats-chart' },
   { key: 'profile', label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 ];
 

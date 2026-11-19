@@ -922,3 +922,156 @@ def list_redemptions(
         .all()
     )
     return {"items": [redemption_to_dict(r) for r in rows]}
+
+# ----- study stats + session history -----
+# The timer gives tokens every 5 minutes through /tokens/earn, so logging a
+# session here does NOT give tokens again. It only saves the session so the
+# user can see their past study times and stats.
+
+LOG_STATUSES = ("completed", "cancelled")
+MAX_SESSION_SECONDS = 3 * 60 * 60 + 60  # timer max is 180 min (+1 min slack)
+
+
+class LogSessionRequest(BaseModel):
+    planned_duration: int  # minutes the user picked
+    seconds_studied: int  # how long the timer actually ran
+    status: str  # completed or cancelled
+    tokens_earned: int = 0  # tokens the timer gave during this session
+
+
+def iso_utc(dt):
+    # times are saved in UTC; add Z so the app converts to the user's local time
+    if dt is None:
+        return None
+    return dt.replace(microsecond=0).isoformat() + "Z"
+
+
+def session_seconds(s: StudySession):
+    if s.start_time and s.end_time:
+        return max(0, int((s.end_time - s.start_time).total_seconds()))
+    return (s.actual_duration or 0) * 60
+
+
+def history_item(s: StudySession):
+    return {
+        "id": s.id,
+        "start_time": iso_utc(s.start_time),
+        "end_time": iso_utc(s.end_time),
+        "planned_duration": s.planned_duration,
+        "seconds_studied": session_seconds(s),
+        "status": s.status,
+        "tokens_earned": s.tokens_earned or 0,
+    }
+
+
+@app.post("/study/log", status_code=201)
+def log_session(
+    data: LogSessionRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # check the input so nobody can save fake or broken sessions
+    if data.status not in LOG_STATUSES:
+        raise HTTPException(status_code=400, detail="status must be completed or cancelled.")
+    if data.planned_duration < 1 or data.planned_duration > 180:
+        raise HTTPException(status_code=400, detail="planned_duration must be 1 to 180 minutes.")
+    if data.seconds_studied < 1 or data.seconds_studied > MAX_SESSION_SECONDS:
+        raise HTTPException(status_code=400, detail="seconds_studied is not valid.")
+    if data.seconds_studied > data.planned_duration * 60 + 60:
+        raise HTTPException(status_code=400, detail="Session is longer than planned.")
+
+    # 1 token per 5 minutes, so tokens can't be more than that (+1 for rounding)
+    max_tokens = data.seconds_studied // 300 + 1
+    if data.tokens_earned < 0 or data.tokens_earned > max_tokens:
+        raise HTTPException(status_code=400, detail="tokens_earned is not valid.")
+
+    end = datetime.utcnow()
+    session = StudySession(
+        user_id=user.id,
+        planned_duration=data.planned_duration,
+        start_time=end - timedelta(seconds=data.seconds_studied),
+        end_time=end,
+        actual_duration=data.seconds_studied // 60,  # minutes, like the db schema
+        status=data.status,
+        tokens_earned=data.tokens_earned,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return history_item(session)
+
+
+@app.get("/study/history")
+def session_history(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = 50,
+):
+    limit = max(1, min(limit, 100))
+    rows = (
+        db.query(StudySession)
+        .filter(StudySession.user_id == user.id, StudySession.status.in_(LOG_STATUSES))
+        .order_by(StudySession.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return {"items": [history_item(s) for s in rows]}
+
+
+@app.get("/study/stats")
+def study_stats(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    tz_offset: int = 0,
+):
+    # tz_offset = minutes from JavaScript's getTimezoneOffset() (Paris in winter = -60)
+    # so "today" and "this week" match the user's own clock, not the server's
+    if tz_offset < -14 * 60 or tz_offset > 14 * 60:
+        tz_offset = 0
+    shift = timedelta(minutes=-tz_offset)
+
+    rows = (
+        db.query(StudySession)
+        .filter(StudySession.user_id == user.id, StudySession.status.in_(LOG_STATUSES))
+        .all()
+    )
+
+    today = (datetime.utcnow() + shift).date()
+    week_start = today - timedelta(days=today.weekday())  # Monday
+    last_7 = [today - timedelta(days=i) for i in range(6, -1, -1)]
+    per_day = {d: 0 for d in last_7}
+
+    total = today_secs = week_secs = longest = 0
+    completed = cancelled = 0
+
+    for s in rows:
+        secs = session_seconds(s)
+        total += secs
+        longest = max(longest, secs)
+        if s.status == "completed":
+            completed += 1
+        else:
+            cancelled += 1
+
+        local_day = ((s.end_time or s.start_time) + shift).date()
+        if local_day == today:
+            today_secs += secs
+        if local_day >= week_start:
+            week_secs += secs
+        if local_day in per_day:
+            per_day[local_day] += secs
+
+    count = completed + cancelled
+    return {
+        "total_seconds": total,
+        "today_seconds": today_secs,
+        "week_seconds": week_secs,
+        "sessions_total": count,
+        "sessions_completed": completed,
+        "sessions_cancelled": cancelled,
+        "completion_rate": round(completed / count * 100) if count else 0,
+        "average_seconds": total // count if count else 0,
+        "longest_seconds": longest,
+        "current_streak": user.current_streak or 0,
+        "last_7_days": [{"day": d.isoformat(), "seconds": per_day[d]} for d in last_7],
+    }

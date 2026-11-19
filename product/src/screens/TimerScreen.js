@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet, AppState, Platform } from 'react-nat
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
 import { useKeepAwake } from 'expo-keep-awake';
-import { getBalance, earnTokens, getStreak, checkInStreak } from './TokenApi';
+import { getBalance, earnTokens, getStreak, checkInStreak, logStudySession } from './TokenApi';
 
 const DEFAULTS = { work: 25 * 60, break: 5 * 60 };
 const MODES = ['work', 'break', 'custom'];
@@ -43,6 +43,9 @@ export default function TimerScreen({ onOpenStreak }) {
     const pending = useRef(0); // tokens earned but not saved to the server yet
     const saving = useRef(false);
     const lastTry = useRef(0);
+
+    // the focus run that is going on now (null = none), saved to history when it ends
+    const run = useRef(null);
 
     function durationFor(m, mins = customMins) {
         if (m === 'custom') return mins * 60;
@@ -132,6 +135,15 @@ export default function TimerScreen({ onOpenStreak }) {
         lastTick.current = Date.now(); // so only time from now on counts towards tokens
         setEndTime(end);
 
+        // a new focus run starts (breaks are not study time, so they are not saved)
+        if (!run.current && mode !== 'break') {
+            run.current = {
+                startUsed: usedSecs.current,
+                startAwarded: awarded.current,
+                planned: Math.round(durationFor(mode) / 60),
+            };
+        }
+
         // starting the timer counts today for the streak
         checkInStreak()
             .then((r) => setStreak(r.current_streak))
@@ -157,13 +169,33 @@ export default function TimerScreen({ onOpenStreak }) {
         }
     }
 
+    // save the focus run to the study history: 'completed' or 'cancelled'
+    function endRun(status) {
+        const r = run.current;
+        run.current = null;
+        if (!r) return;
+
+        const secs = Math.min(Math.round(usedSecs.current - r.startUsed), r.planned * 60);
+        // ignore runs that were cancelled after a few seconds (misclicks)
+        if (secs < 1 || (status === 'cancelled' && secs < 10)) return;
+
+        logStudySession({
+            planned_duration: r.planned,
+            seconds_studied: secs,
+            status,
+            tokens_earned: awarded.current - r.startAwarded,
+        }).catch((e) => console.warn('Could not save study session', e));
+    }
+
     // stop the run and put the clock back to the full time for this mode
     async function reset() {
+        endRun('cancelled');
         await pause();
         setRemaining(durationFor(mode));
     }
 
     function switchMode(next) {
+        endRun('cancelled'); // does nothing if the run was already saved
         pause();
         setMode(next);
         setRemaining(durationFor(next));
@@ -182,6 +214,9 @@ export default function TimerScreen({ onOpenStreak }) {
         if (!IS_WEB) {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
+
+        // timer reached 0 on a focus run, so it counts as completed
+        if (mode !== 'break') endRun('completed');
 
         if (mode === 'work') {
             switchMode('break');
